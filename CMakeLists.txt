@@ -1,5 +1,5 @@
 
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.16)
 
 project("Oskar's Half-Life Tools"
     DESCRIPTION "Compilers for maps for Half-Life 1, Counter-Strike 1.6, and other GoldSrc engine games"
