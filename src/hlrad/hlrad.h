@@ -470,6 +470,10 @@ TestLine(float3_array const & start, float3_array const & stop) {
 	return TestLine(start, stop, skyhitout);
 }
 
+extern contents_t TestLineFrac(
+	float3_array const & start, float3_array const & stop, float& frac
+);
+
 extern std::array<float3_array, 15> const pos;
 
 enum class vis_method {

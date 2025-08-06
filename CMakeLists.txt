@@ -148,6 +148,7 @@ set(CSG_HEADERS
 set(RAD_DIR ${HLT_DIR}/hlrad)
 
 set(RAD_SOURCES
+	${RAD_DIR}/ao.cpp
 	${RAD_DIR}/meshdesc.cpp
 	${RAD_DIR}/meshtrace.cpp
 	${RAD_DIR}/studio.cpp

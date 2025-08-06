@@ -1,3 +1,4 @@
+#include "ao.hpp"
 #include "developer_level.h"
 #include "hlassert.h"
 #include "hlrad.h"
@@ -1706,6 +1707,9 @@ struct sample_t final {
 	float3_array pos;
 	float3_array light;
 	int surface; // this sample can grow into another face
+
+	float occlusion; // (baAlex), occlusion is a different "layer" than
+					 // light, both mixed together at compilation end
 };
 
 struct facelight_t final {
@@ -3888,11 +3892,18 @@ void BuildFacelights(int const facenum) {
 	sample_wallflags = (int*) malloc(
 		(2 * l.lmcache_side + 1) * (2 * l.lmcache_side + 1) * sizeof(int)
 	);
+
 	float3_array const * spot = &l.surfpt[0];
-	for (i = 0; i < l.numsurfpt; i++, ++spot) {
+	float3_array const * spot3
+		= l.surfpt_position; // (baAlex), there are two kind of positions
+
+	for (i = 0; i < l.numsurfpt; i++, ++spot, ++spot3) {
+		float const occlusion = Ao::Sample(*spot3, l.facenormal);
+
 		for (k = 0; k < ALLSTYLES; k++) {
 			fl_samples[k][i].pos = *spot;
 			fl_samples[k][i].surface = l.surfpt_surface[i];
+			fl_samples[k][i].occlusion = occlusion;
 		}
 
 		int s, t, pos;
@@ -5285,7 +5296,13 @@ void FinalLightFace(int const facenum) {
 					lb[i] = g_minlight;
 				}
 			}
+
 			// ------------------------------------------------------------------------
+
+			lb[0] = Ao::Blend(samp->occlusion, lb[0]);
+			lb[1] = Ao::Blend(samp->occlusion, lb[1]);
+			lb[2] = Ao::Blend(samp->occlusion, lb[2]);
+
 			for (i = 0; i < 3; ++i) {
 				lbi[i] = (int) floor(lb[i] + 0.5);
 				if (lbi[i] < 0) {

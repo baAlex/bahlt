@@ -171,6 +171,115 @@ contents_t TestLine(
 	return TestLine_r(0, start, stop, skyhit);
 }
 
+//==========================================================
+
+static contents_t TestLineFrac_r(
+	int const node,
+	float3_array const & start,
+	float3_array const & stop,
+	float& out_frac
+) {
+	tnode_t* tnode;
+	float front, back;
+	float3_array mid;
+	float frac;
+	int side;
+	contents_t r;
+
+	if (node < 0) {
+		out_frac = 1.0f;
+		if (node != 0) {
+			contents_t nodeContents{ node };
+			if (nodeContents == contents_t::SOLID) {
+				return contents_t::SOLID;
+			}
+			if (nodeContents == contents_t::SKY) {
+				return contents_t::SKY;
+			}
+		}
+		return contents_t::EMPTY;
+	}
+
+	tnode = &tnodes[node];
+	switch (tnode->type) {
+		case planetype::plane_x:
+			front = start[0] - tnode->dist;
+			back = stop[0] - tnode->dist;
+			break;
+		case planetype::plane_y:
+			front = start[1] - tnode->dist;
+			back = stop[1] - tnode->dist;
+			break;
+		case planetype::plane_z:
+			front = start[2] - tnode->dist;
+			back = stop[2] - tnode->dist;
+			break;
+		default:
+			front = (start[0] * tnode->normal[0]
+					 + start[1] * tnode->normal[1]
+					 + start[2] * tnode->normal[2])
+				- tnode->dist;
+			back = (stop[0] * tnode->normal[0] + stop[1] * tnode->normal[1]
+					+ stop[2] * tnode->normal[2])
+				- tnode->dist;
+			break;
+	}
+
+	if (front > ON_EPSILON / 2 && back > ON_EPSILON / 2) {
+		return TestLineFrac_r(tnode->children[0], start, stop, frac);
+	}
+	if (front < -ON_EPSILON / 2 && back < -ON_EPSILON / 2) {
+		return TestLineFrac_r(tnode->children[1], start, stop, frac);
+	}
+	if (fabs(front) <= ON_EPSILON && fabs(back) <= ON_EPSILON) {
+		contents_t r1 = TestLineFrac_r(
+			tnode->children[0], start, stop, frac
+		);
+		if (r1 == contents_t::SOLID) {
+			return contents_t::SOLID;
+		}
+		contents_t r2 = TestLineFrac_r(
+			tnode->children[1], start, stop, frac
+		);
+		if (r2 == contents_t::SOLID) {
+			return contents_t::SOLID;
+		}
+		if (r1 == contents_t::SKY || r2 == contents_t::SKY) {
+			return contents_t::SKY;
+		}
+		out_frac = 1.0f;
+		return contents_t::EMPTY;
+	}
+	side = (front - back) < 0;
+	frac = front / (front - back);
+	if (frac < 0) {
+		frac = 0;
+	}
+	if (frac > 1) {
+		frac = 1;
+	}
+
+	out_frac *= frac;
+
+	mid[0] = start[0] + (stop[0] - start[0]) * frac;
+	mid[1] = start[1] + (stop[1] - start[1]) * frac;
+	mid[2] = start[2] + (stop[2] - start[2]) * frac;
+	r = TestLineFrac_r(tnode->children[side], start, mid, frac);
+	if (r != contents_t::EMPTY) {
+		return r;
+	}
+	return TestLineFrac_r(tnode->children[!side], mid, stop, frac);
+}
+
+contents_t TestLineFrac(
+	float3_array const & start, float3_array const & stop, float& out_frac
+) {
+	out_frac = 1.0f;
+	return TestLineFrac_r(0, start, stop, out_frac);
+}
+
+//==========================================================
+
 struct opaqueface_t final {
 	fast_winding* winding;
 	dplane_t plane;

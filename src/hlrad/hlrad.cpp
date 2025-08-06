@@ -1,5 +1,6 @@
 #include "hlrad.h"
 
+#include "ao.hpp"
 #include "bsp_file_sizes.h"
 #include "bspfile.h"
 #include "cmdlib.h"
@@ -4029,6 +4030,33 @@ int main(int const argc, char** argv) {
 				{
 					g_pre25update = true;
 					g_limitthreshold = 188.0;
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-aodepth"
+						   )
+						   == 0) {
+					if (i + 1 < argc) {
+						Ao::SetDepth(atof(argv[++i]));
+					} else {
+						Usage();
+					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-aoscale"
+						   )
+						   == 0) {
+					if (i + 1 < argc) {
+						Ao::SetScale(atof(argv[++i]));
+					} else {
+						Usage();
+					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-aogamma"
+						   )
+						   == 0) {
+					if (i + 1 < argc) {
+						Ao::SetGamma(atof(argv[++i]));
+					} else {
+						Usage();
+					}
 				} else if (argv[i][0] == '-') {
 					Log("Unknown option \"%s\"\n", argv[i]);
 					Usage();
