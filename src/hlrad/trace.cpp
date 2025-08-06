@@ -226,20 +226,20 @@ static contents_t TestLineFrac_r(
 	}
 
 	if (front > ON_EPSILON / 2 && back > ON_EPSILON / 2) {
-		return TestLineFrac_r(tnode->children[0], start, stop, frac);
+		return TestLineFrac_r(tnode->children[0], start, stop, out_frac);
 	}
 	if (front < -ON_EPSILON / 2 && back < -ON_EPSILON / 2) {
-		return TestLineFrac_r(tnode->children[1], start, stop, frac);
+		return TestLineFrac_r(tnode->children[1], start, stop, out_frac);
 	}
 	if (fabs(front) <= ON_EPSILON && fabs(back) <= ON_EPSILON) {
 		contents_t r1 = TestLineFrac_r(
-			tnode->children[0], start, stop, frac
+			tnode->children[0], start, stop, out_frac
 		);
 		if (r1 == contents_t::SOLID) {
 			return contents_t::SOLID;
 		}
 		contents_t r2 = TestLineFrac_r(
-			tnode->children[1], start, stop, frac
+			tnode->children[1], start, stop, out_frac
 		);
 		if (r2 == contents_t::SOLID) {
 			return contents_t::SOLID;
@@ -264,11 +264,11 @@ static contents_t TestLineFrac_r(
 	mid[0] = start[0] + (stop[0] - start[0]) * frac;
 	mid[1] = start[1] + (stop[1] - start[1]) * frac;
 	mid[2] = start[2] + (stop[2] - start[2]) * frac;
-	r = TestLineFrac_r(tnode->children[side], start, mid, frac);
+	r = TestLineFrac_r(tnode->children[side], start, mid, out_frac);
 	if (r != contents_t::EMPTY) {
 		return r;
 	}
-	return TestLineFrac_r(tnode->children[!side], mid, stop, frac);
+	return TestLineFrac_r(tnode->children[!side], mid, stop, out_frac);
 }
 
 contents_t TestLineFrac(
