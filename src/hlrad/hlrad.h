@@ -10,6 +10,7 @@
 
 #define DEFAULT_PRE25UPDATE	  false
 #define DEFAULT_FASTMODE	  false
+#define DEFAULT_AO_ONLY_MODE  false
 #define DEFAULT_LERP_ENABLED  true
 #define DEFAULT_STUDIOSHADOW  true // seedee
 #define DEFAULT_FADE		  1.0
@@ -370,6 +371,7 @@ extern void MakeShadowSplits();
 //==============================================
 
 extern bool g_fastmode;
+extern bool g_ao_only_mode;
 extern bool g_extra;
 extern float3_array g_ambient;
 extern float g_direct_scale;

@@ -32,6 +32,7 @@ using namespace std::literals;
 
 bool g_pre25update = DEFAULT_PRE25UPDATE;
 bool g_fastmode = DEFAULT_FASTMODE;
+bool g_ao_only_mode = DEFAULT_AO_ONLY_MODE;
 bool g_studioshadow = DEFAULT_STUDIOSHADOW;
 
 static vis_method g_method = cli_option_defaults::visMethod;
@@ -4054,6 +4055,11 @@ int main(int const argc, char** argv) {
 					} else {
 						Usage();
 					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+					argv[i], u8"-aoonly"
+				)) {
+					g_ao_only_mode = true;
+					g_numbounce = 0;
 				} else if (argv[i][0] == '-') {
 					Log("Unknown option \"%s\"\n", argv[i]);
 					Usage();

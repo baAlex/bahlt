@@ -3447,6 +3447,13 @@ auto const s_circuscolors = std::array{
 // =====================================================================================
 //  BuildFacelights
 // =====================================================================================
+void DummyCalcLightmap(lightinfo_t* l, std::array<unsigned char, ALLSTYLES>& styles) {
+	memset(l->lmcache, 0, l->lmcachewidth * l->lmcacheheight * sizeof(std::array<float3_array, ALLSTYLES>));
+	memset(l->lmcache_normal, 0, l->lmcachewidth * l->lmcacheheight * sizeof(float3_array));
+	memset(l->lmcache_wallflags, 0, l->lmcachewidth * l->lmcacheheight * sizeof(int));
+	// l->miptex // (baAlex) TODO, seems to be loaded with the Bsp
+}
+
 void CalcLightmap(
 	lightinfo_t* l, std::array<unsigned char, ALLSTYLES>& styles
 ) {
@@ -3847,7 +3854,12 @@ void BuildFacelights(int const facenum) {
 	CalcFaceVectors(&l);
 	CalcFaceExtents(&l);
 	CalcPoints(&l);
-	CalcLightmap(&l, f_styles);
+
+	if (g_ao_only_mode == false) {
+		CalcLightmap(&l, f_styles);
+	} else {
+		DummyCalcLightmap(&l, f_styles);
+	}
 
 	lightmapwidth = l.texsize[0] + 1;
 	lightmapheight = l.texsize[1] + 1;
@@ -4111,6 +4123,9 @@ void BuildFacelights(int const facenum) {
 			// LRC (ends)
 		}
 	}
+
+	if (g_numbounce > 0) // (baAlex) Why set patches when there is no radiosity?... did I understandt this correctly?
+	{
 	for (patch = g_face_patches[facenum]; patch; patch = patch->next) {
 		// get the PVS for the pos to limit the number of checks
 		if (!g_visdatasize) {
@@ -4203,6 +4218,7 @@ void BuildFacelights(int const facenum) {
 				facenum
 			);
 		}
+	}
 	}
 
 	// add an ambient term if desired
@@ -5299,9 +5315,15 @@ void FinalLightFace(int const facenum) {
 
 			// ------------------------------------------------------------------------
 
-			lb[0] = Ao::Blend(samp->occlusion, lb[0]);
-			lb[1] = Ao::Blend(samp->occlusion, lb[1]);
-			lb[2] = Ao::Blend(samp->occlusion, lb[2]);
+			if (g_ao_only_mode == false) {
+				lb[0] = Ao::Blend(samp->occlusion, lb[0]);
+				lb[1] = Ao::Blend(samp->occlusion, lb[1]);
+				lb[2] = Ao::Blend(samp->occlusion, lb[2]);
+			} else {
+				lb[0] = samp->occlusion * 256.0f;
+				lb[1] = samp->occlusion * 256.0f;
+				lb[2] = samp->occlusion * 256.0f;
+			}
 
 			for (i = 0; i < 3; ++i) {
 				lbi[i] = (int) floor(lb[i] + 0.5);
