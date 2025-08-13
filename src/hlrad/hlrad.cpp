@@ -5,6 +5,7 @@
 #include "bspfile.h"
 #include "cmdlib.h"
 #include "cmdlinecfg.h"
+#include "color.h"
 #include "compress.h"
 #include "filelib.h"
 #include "log.h"
@@ -30,7 +31,6 @@ using namespace std::literals;
  * every surface must be divided into at least two g_patches each axis
  */
 
-bool g_pre25update = DEFAULT_PRE25UPDATE;
 bool g_fastmode = DEFAULT_FASTMODE;
 bool g_ao_only_mode = DEFAULT_AO_ONLY_MODE;
 bool g_studioshadow = DEFAULT_STUDIOSHADOW;
@@ -52,8 +52,6 @@ static std::array<unsigned char, MAXLIGHTMAPS>* newstyles;
 
 float3_array g_face_offset[MAX_MAP_FACES]; // for rotating bmodels
 
-float g_direct_scale = DEFAULT_DLIGHT_SCALE;
-
 unsigned g_numbounce = DEFAULT_BOUNCE;
 
 static bool g_dumppatches = DEFAULT_DUMPPATCHES;
@@ -61,10 +59,9 @@ static bool g_dumppatches = DEFAULT_DUMPPATCHES;
 float3_array g_ambient{ DEFAULT_AMBIENT_RED,
 						DEFAULT_AMBIENT_GREEN,
 						DEFAULT_AMBIENT_BLUE };
-float g_limitthreshold = DEFAULT_LIMITTHRESHOLD;
+int8_color_element g_limitthreshold = DEFAULT_LIMITTHRESHOLD;
 bool g_drawoverload = false;
 
-float g_lightscale = DEFAULT_LIGHTSCALE;
 float g_dlight_threshold
 	= DEFAULT_DLIGHT_THRESHOLD; // was DIRECT_LIGHT constant
 
@@ -83,25 +80,15 @@ bool g_circus = DEFAULT_CIRCUS;
 bool g_allow_opaques = DEFAULT_ALLOW_OPAQUES;
 bool g_allow_spread = DEFAULT_ALLOW_SPREAD;
 
-float3_array g_colour_qgamma = { DEFAULT_COLOUR_GAMMA_RED,
-								 DEFAULT_COLOUR_GAMMA_GREEN,
-								 DEFAULT_COLOUR_GAMMA_BLUE };
-float3_array g_colour_lightscale = { DEFAULT_COLOUR_LIGHTSCALE_RED,
-									 DEFAULT_COLOUR_LIGHTSCALE_GREEN,
-									 DEFAULT_COLOUR_LIGHTSCALE_BLUE };
-float3_array g_colour_jitter_hack = { DEFAULT_COLOUR_JITTER_HACK_RED,
-									  DEFAULT_COLOUR_JITTER_HACK_GREEN,
-									  DEFAULT_COLOUR_JITTER_HACK_BLUE };
-float3_array g_jitter_hack = { DEFAULT_JITTER_HACK_RED,
-							   DEFAULT_JITTER_HACK_GREEN,
-							   DEFAULT_JITTER_HACK_BLUE };
+float g_lighting_gamma = DEFAULT_LIGHTING_GAMMA;
+float g_lighting_scale = DEFAULT_LIGHTING_SCALE;
 
 bool g_customshadow_with_bouncelight
 	= DEFAULT_CUSTOMSHADOW_WITH_BOUNCELIGHT;
 bool g_rgb_transfers = DEFAULT_RGB_TRANSFERS;
 
 float g_transtotal_hack = DEFAULT_TRANSTOTAL_HACK;
-std::uint8_t g_minlight = cli_option_defaults::minLight;
+float_color_element g_minlight = cli_option_defaults::minLight;
 float_type g_transfer_compress_type
 	= cli_option_defaults::transferCompressType;
 vector_type g_rgbtransfer_compress_type
@@ -276,15 +263,6 @@ void GetParamsFromEnt(entity_t* mapent) {
 		Log("%30s [ %-9s ]\n",
 			"Smoothing threshold",
 			(char const *) ValueForKey(mapent, u8"smooth"));
-	}
-
-	// dscale(integer) : "Direct Lighting Scale" : 1
-	flTmp = float_for_key(*mapent, u8"dscale");
-	if (flTmp) {
-		g_direct_scale = flTmp;
-		Log("%30s [ %-9s ]\n",
-			"Direct Lighting Scale",
-			(char const *) ValueForKey(mapent, u8"dscale"));
 	}
 
 	// chop(integer) : "Chop Size" : 64
@@ -808,23 +786,24 @@ static void cutWindingWithGrid(
 	{
 		g_numwindings = 0;
 		for (int i = 1; i < gridsizeA; i++) {
-			float dist;
-			fast_winding front;
+			float const dist = gridstartA + i * gridchopA;
+
 			fast_winding back;
-
-			dist = gridstartA + i * gridchopA;
-			winding->Clip(plA->normal, dist, front, back);
-
-			if (!front
-				|| front.WindingOnPlaneSide(plA->normal, dist, epsilon)
-					== face_side::on) // ended
-			{
+			fast_winding front;
+			winding->clip(plA->normal, dist, back, front);
+			bool const ended = front.WindingOnPlaneSide(
+								   plA->normal, dist, epsilon
+							   )
+				== face_side::on;
+			if (ended) {
 				break;
 			}
-			if (!back
-				|| back.WindingOnPlaneSide(plA->normal, dist, epsilon)
-					== face_side::on) // didn't begin
-			{
+
+			bool const didNotBegin = back.WindingOnPlaneSide(
+										 plA->normal, dist, epsilon
+									 )
+				== face_side::on;
+			if (didNotBegin) {
 				continue;
 			}
 
@@ -846,23 +825,24 @@ static void cutWindingWithGrid(
 			windingArray[i] = nullptr;
 
 			for (int j = 1; j < gridsizeB; j++) {
-				float dist;
-				fast_winding front;
+				float const dist = gridstartB + j * gridchopB;
+
 				fast_winding back;
-
-				dist = gridstartB + j * gridchopB;
-				strip->Clip(plB->normal, dist, front, back);
-
-				if (!front
-					|| front.WindingOnPlaneSide(plB->normal, dist, epsilon)
-						== face_side::on) // ended
-				{
+				fast_winding front;
+				strip->clip(plB->normal, dist, back, front);
+				bool const ended = front.WindingOnPlaneSide(
+									   plB->normal, dist, epsilon
+								   )
+					== face_side::on;
+				if (ended) {
 					break;
 				}
-				if (!back
-					|| back.WindingOnPlaneSide(plB->normal, dist, epsilon)
-						== face_side::on) // didn't begin
-				{
+
+				bool const didNotBegin = back.WindingOnPlaneSide(
+											 plB->normal, dist, epsilon
+										 )
+					== face_side::on;
+				if (didNotBegin) {
 					continue;
 				}
 
@@ -2075,9 +2055,12 @@ static void WriteWorld(char const * const name) {
 				w->point(i)[0],
 				w->point(i)[1],
 				w->point(i)[2],
-				patch->totallight[0][0] / 256,
-				patch->totallight[0][1] / 256,
-				patch->totallight[0][2] / 256); // LRC
+				patch->totallight[0][0]
+					/ 256, // TODO: SHOULDN'T THESE BE / 255.0f ?????????
+				patch->totallight[0][1]
+					/ 256, // TODO: SHOULDN'T THESE BE / 255.0f ?????????
+				patch->totallight[0][2] / 256
+			); // TODO: SHOULDN'T THESE BE / 255.0f ?????????
 		}
 		Log("\n");
 	}
@@ -2557,18 +2540,12 @@ static void FreeTransfers() {
 }
 
 static void ExtendLightmapBuffer() {
-	int maxsize;
-	int i;
-	int j;
-	int ofs;
-	dface_t* f;
-
-	maxsize = 0;
-	for (i = 0; i < g_numfaces; i++) {
-		f = &g_dfaces[i];
+	int maxsize = 0;
+	for (int i = 0; i < g_numfaces; i++) {
+		dface_t* f = &g_dfaces[i];
 		if (f->lightofs >= 0) {
-			ofs = f->lightofs;
-			for (j = 0; j < MAXLIGHTMAPS && f->styles[j] != 255; j++) {
+			int ofs = f->lightofs;
+			for (int j = 0; j < MAXLIGHTMAPS && f->styles[j] != 255; j++) {
 				ofs += (MAX_SURFACE_EXTENT + 1) * (MAX_SURFACE_EXTENT + 1)
 					* 3;
 			}
@@ -2718,8 +2695,6 @@ static void RadWorld() {
 	// blend bounced light into direct light and save
 	PrecompLightmapOffsets();
 
-	ScaleDirectLights();
-
 	{
 		CreateFacelightDependencyList();
 
@@ -2744,6 +2719,8 @@ static void RadWorld() {
 	ReduceLightmap();
 	if (g_dlightdata.empty()) {
 		g_dlightdata.push_back(std::byte(0));
+		g_dlightdata.push_back(std::byte(0));
+		g_dlightdata.push_back(std::byte(0));
 	}
 	ExtendLightmapBuffer(
 	); // expand the size of lightdata array (for a few KB) to ensure that
@@ -2760,8 +2737,6 @@ static void Usage() {
 	Log("    -waddir folder  : Search this folder for wad files.\n");
 	Log("    -fast           : Fast rad\n");
 	Log("    -vismatrix value: Set vismatrix method to normal, sparse or off.\n"
-	);
-	Log("    -pre25          : Optimize compile for pre-Half-Life 25th anniversary update.\n"
 	);
 	Log("    -extra          : Improve lighting quality by doing 9 point oversampling\n"
 	);
@@ -2794,8 +2769,8 @@ static void Usage() {
 	Log("    -fade #         : Set global fade (larger values = shorter lights)\n"
 	);
 	Log("    -texlightgap #  : Set global gap distance for texlights\n");
-	Log("    -scale #        : Set global light scaling value\n");
-	Log("    -gamma #        : Set global gamma value\n\n");
+	Log("    -lighting-scale # : Set global light scaling value\n");
+	Log("    -lighting-gamma # : Set global gamma value\n\n");
 	Log("    -sky #          : Set ambient sunlight contribution in the shade outside\n"
 	);
 	Log("    -lights file    : Manually specify a lights.rad file to use\n"
@@ -2824,24 +2799,6 @@ static void Usage() {
 	);
 	Log("    -dev %s : compile with developer logging\n\n",
 		(char const *) developer_level_options.data());
-
-	// ------------------------------------------------------------------------
-	// Changes by Adam Foster - afoster@compsoc.man.ac.uk
-
-	// AJM: we dont need this extra crap
-	// Log("-= Unofficial features added by Adam Foster
-	// (afoster@compsoc.man.ac.uk) =-\n\n");
-	Log("   -colourgamma r g b  : Sets different gamma values for r, g, b\n"
-	);
-	Log("   -colourscale r g b  : Sets different lightscale values for r, g ,b\n"
-	);
-	Log("   -colourjitter r g b : Adds noise, independent colours, for dithering\n"
-	);
-	Log("   -jitter r g b       : Adds noise, monochromatic, for dithering\n"
-	);
-	// Log("-= End of unofficial features! =-\n\n" );
-
-	// ------------------------------------------------------------------------
 
 	Log("   -customshadowwithbounce : Enables custom shadows with bounce light\n"
 	);
@@ -2960,9 +2917,6 @@ static void Settings() {
 			: cli_option_defaults::visMethod == vis_method::no_vismatrix
 			? "NoMatrix"
 			: "Unknown");
-	Log("pre-25th anniversary [ %17s ] [ %17s ]\n",
-		g_pre25update ? "on" : "off",
-		DEFAULT_PRE25UPDATE ? "on" : "off");
 	Log("oversampling (-extra)[ %17s ] [ %17s ]\n",
 		g_extra ? "on" : "off",
 		DEFAULT_EXTRA ? "on" : "off");
@@ -2987,11 +2941,9 @@ static void Settings() {
 		DEFAULT_AMBIENT_BLUE
 	);
 	Log("ambient light        [ %17s ] [ %17s ]\n", buf1, buf2);
-	safe_snprintf(buf1, sizeof(buf1), "%3.3f", g_limitthreshold);
-	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_LIMITTHRESHOLD);
-	Log("light limit threshold[ %17s ] [ %17s ]\n",
-		g_limitthreshold >= 0 ? buf1 : "None",
-		buf2);
+	safe_snprintf(buf1, sizeof(buf1), "%uf", g_limitthreshold);
+	safe_snprintf(buf2, sizeof(buf2), "%u", DEFAULT_LIMITTHRESHOLD);
+	Log("light limit threshold[ %17s ] [ %17s ]\n", buf1, buf2);
 	Log("circus mode          [ %17s ] [ %17s ]\n",
 		g_circus ? "on" : "off",
 		DEFAULT_CIRCUS ? "on" : "off");
@@ -3016,9 +2968,6 @@ static void Settings() {
 	safe_snprintf(buf1, sizeof(buf1), "%3.3f", g_dlight_threshold);
 	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_DLIGHT_THRESHOLD);
 	Log("direct threshold     [ %17s ] [ %17s ]\n", buf1, buf2);
-	safe_snprintf(buf1, sizeof(buf1), "%3.3f", g_direct_scale);
-	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_DLIGHT_SCALE);
-	Log("direct light scale   [ %17s ] [ %17s ]\n", buf1, buf2);
 	safe_snprintf(buf1, sizeof(buf1), "%3.3f", g_coring);
 	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_CORING);
 	Log("coring threshold     [ %17s ] [ %17s ]\n", buf1, buf2);
@@ -3049,50 +2998,13 @@ static void Settings() {
 	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_TEXLIGHTGAP);
 	Log("global texlight gap  [ %17s ] [ %17s ]\n", buf1, buf2);
 
-	// ------------------------------------------------------------------------
-	// Changes by Adam Foster - afoster@compsoc.man.ac.uk
-	// replaces the old stuff for displaying current values for gamma and
-	// lightscale
-	safe_snprintf(
-		buf1,
-		sizeof(buf1),
-		"%1.3f %1.3f %1.3f",
-		g_colour_lightscale[0],
-		g_colour_lightscale[1],
-		g_colour_lightscale[2]
-	);
-	safe_snprintf(
-		buf2,
-		sizeof(buf2),
-		"%1.3f %1.3f %1.3f",
-		DEFAULT_COLOUR_LIGHTSCALE_RED,
-		DEFAULT_COLOUR_LIGHTSCALE_GREEN,
-		DEFAULT_COLOUR_LIGHTSCALE_BLUE
-	);
+	safe_snprintf(buf1, sizeof(buf1), "%1.3f", g_lighting_scale);
+	safe_snprintf(buf2, sizeof(buf2), "%1.3f", DEFAULT_LIGHTING_SCALE);
 	Log("global light scale   [ %17s ] [ %17s ]\n", buf1, buf2);
 
-	safe_snprintf(
-		buf1,
-		sizeof(buf1),
-		"%1.3f %1.3f %1.3f",
-		g_colour_qgamma[0],
-		g_colour_qgamma[1],
-		g_colour_qgamma[2]
-	);
-	safe_snprintf(
-		buf2,
-		sizeof(buf2),
-		"%1.3f %1.3f %1.3f",
-		DEFAULT_COLOUR_GAMMA_RED,
-		DEFAULT_COLOUR_GAMMA_GREEN,
-		DEFAULT_COLOUR_GAMMA_BLUE
-	);
+	safe_snprintf(buf1, sizeof(buf1), "%1.3f", g_lighting_gamma);
+	safe_snprintf(buf2, sizeof(buf2), "%1.3f", DEFAULT_LIGHTING_GAMMA);
 	Log("global gamma         [ %17s ] [ %17s ]\n", buf1, buf2);
-	// ------------------------------------------------------------------------
-
-	safe_snprintf(buf1, sizeof(buf1), "%3.3f", g_lightscale);
-	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_LIGHTSCALE);
-	Log("global light scale   [ %17s ] [ %17s ]\n", buf1, buf2);
 
 	safe_snprintf(buf1, sizeof(buf1), "%3.3f", g_indirect_sun);
 	safe_snprintf(buf2, sizeof(buf2), "%3.3f", DEFAULT_INDIRECT_SUN);
@@ -3117,48 +3029,6 @@ static void Settings() {
 	Log("dump                 [ %17s ] [ %17s ]\n",
 		g_dumppatches ? "on" : "off",
 		DEFAULT_DUMPPATCHES ? "on" : "off");
-
-	// ------------------------------------------------------------------------
-	// Changes by Adam Foster - afoster@compsoc.man.ac.uk
-	// displays information on all the brand-new features :)
-
-	Log("\n");
-	safe_snprintf(
-		buf1,
-		sizeof(buf1),
-		"%3.1f %3.1f %3.1f",
-		g_colour_jitter_hack[0],
-		g_colour_jitter_hack[1],
-		g_colour_jitter_hack[2]
-	);
-	safe_snprintf(
-		buf2,
-		sizeof(buf2),
-		"%3.1f %3.1f %3.1f",
-		DEFAULT_COLOUR_JITTER_HACK_RED,
-		DEFAULT_COLOUR_JITTER_HACK_GREEN,
-		DEFAULT_COLOUR_JITTER_HACK_BLUE
-	);
-	Log("colour jitter        [ %17s ] [ %17s ]\n", buf1, buf2);
-	safe_snprintf(
-		buf1,
-		sizeof(buf1),
-		"%3.1f %3.1f %3.1f",
-		g_jitter_hack[0],
-		g_jitter_hack[1],
-		g_jitter_hack[2]
-	);
-	safe_snprintf(
-		buf2,
-		sizeof(buf2),
-		"%3.1f %3.1f %3.1f",
-		DEFAULT_JITTER_HACK_RED,
-		DEFAULT_JITTER_HACK_GREEN,
-		DEFAULT_JITTER_HACK_BLUE
-	);
-	Log("monochromatic jitter [ %17s ] [ %17s ]\n", buf1, buf2);
-
-	// ------------------------------------------------------------------------
 
 	Log("\n");
 	Log("custom shadows with bounce light\n"
@@ -3594,27 +3464,18 @@ int main(int const argc, char** argv) {
 						Usage();
 					}
 				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-scale"
+							   argv[i], u8"-lighting-scale"
 						   )) {
-					if (i + 1 < argc) // added "1" .--vluzacn
-					{
-						// ------------------------------------------------------------------------
-						// Changes by Adam Foster -
-						// afoster@compsoc.man.ac.uk Munge monochrome
-						// lightscale into colour one
+					if (i + 1 < argc) {
 						i++;
-						g_colour_lightscale[0] = (float) atof(argv[i]);
-						g_colour_lightscale[1] = (float) atof(argv[i]);
-						g_colour_lightscale[2] = (float) atof(argv[i]);
-						// ------------------------------------------------------------------------
+						g_lighting_scale = (float) atof(argv[i]);
 					} else {
 						Usage();
 					}
 				} else if (strings_equal_with_ascii_case_insensitivity(
 							   argv[i], u8"-fade"
 						   )) {
-					if (i + 1 < argc) // added "1" .--vluzacn
-					{
+					if (i + 1 < argc) {
 						g_fade = (float) atof(argv[++i]);
 						if (g_fade < 0.0) {
 							Log("-fade must be a positive number\n");
@@ -3642,7 +3503,9 @@ int main(int const argc, char** argv) {
 									  // another argument afterwards
 									  //(expected value)
 					{
-						g_limitthreshold = atof(argv[++i]);
+						g_limitthreshold = std::clamp(
+							atoi(argv[++i]), 0, 255
+						);
 					} else {
 						Usage();
 					}
@@ -3689,27 +3552,18 @@ int main(int const argc, char** argv) {
 						   )) {
 					g_log = false;
 				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-gamma"
+							   argv[i], u8"-lighting-gamma"
 						   )) {
-					if (i + 1 < argc) // added "1" .--vluzacn
-					{
-						// ------------------------------------------------------------------------
-						// Changes by Adam Foster -
-						// afoster@compsoc.man.ac.uk Munge values from
-						// original, monochrome gamma into colour gamma
+					if (i + 1 < argc) {
 						i++;
-						g_colour_qgamma[0] = (float) atof(argv[i]);
-						g_colour_qgamma[1] = (float) atof(argv[i]);
-						g_colour_qgamma[2] = (float) atof(argv[i]);
-						// ------------------------------------------------------------------------
+						g_lighting_gamma = (float) atof(argv[i]);
 					} else {
 						Usage();
 					}
 				} else if (strings_equal_with_ascii_case_insensitivity(
 							   argv[i], u8"-dlight"
 						   )) {
-					if (i + 1 < argc) // added "1" .--vluzacn
-					{
+					if (i + 1 < argc) {
 						g_dlight_threshold = (float) atof(argv[++i]);
 					} else {
 						Usage();
@@ -3789,100 +3643,29 @@ int main(int const argc, char** argv) {
 				{
 					g_allow_opaques = false;
 				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-dscale"
+							   argv[i], u8"-customshadowwithbounce"
 						   )) {
-					if (i + 1 < argc) // added "1" .--vluzacn
-					{
-						g_direct_scale = (float) atof(argv[++i]);
-					} else {
-						Usage();
-					}
-				}
-
-				// ------------------------------------------------------------------------
-				// Changes by Adam Foster - afoster@compsoc.man.ac.uk
-				else if (strings_equal_with_ascii_case_insensitivity(
-							 argv[i], u8"-colourgamma"
-						 )) {
-					if (i + 3 < argc) {
-						g_colour_qgamma[0] = (float) atof(argv[++i]);
-						g_colour_qgamma[1] = (float) atof(argv[++i]);
-						g_colour_qgamma[2] = (float) atof(argv[++i]);
-					} else {
-						Error(
-							"expected three color values after '-colourgamma'\n"
-						);
-					}
-				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-colourscale"
-						   )) {
-					if (i + 3 < argc) {
-						g_colour_lightscale[0] = (float) atof(argv[++i]);
-						g_colour_lightscale[1] = (float) atof(argv[++i]);
-						g_colour_lightscale[2] = (float) atof(argv[++i]);
-					} else {
-						Error(
-							"expected three color values after '-colourscale'\n"
-						);
-					}
-				}
-
-				else if (strings_equal_with_ascii_case_insensitivity(
-							 argv[i], u8"-colourjitter"
-						 )) {
-					if (i + 3 < argc) {
-						g_colour_jitter_hack[0] = (float) atof(argv[++i]);
-						g_colour_jitter_hack[1] = (float) atof(argv[++i]);
-						g_colour_jitter_hack[2] = (float) atof(argv[++i]);
-					} else {
-						Error(
-							"expected three color values after '-colourjitter'\n"
-						);
-					}
-				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-jitter"
-						   )) {
-					if (i + 3 < argc) {
-						g_jitter_hack[0] = (float) atof(argv[++i]);
-						g_jitter_hack[1] = (float) atof(argv[++i]);
-						g_jitter_hack[2] = (float) atof(argv[++i]);
-					} else {
-						Error(
-							"expected three color values after '-jitter'\n"
-						);
-					}
-				}
-
-				// ------------------------------------------------------------------------
-
-				else if (strings_equal_with_ascii_case_insensitivity(
-							 argv[i], u8"-customshadowwithbounce"
-						 )) {
 					g_customshadow_with_bouncelight = true;
 				} else if (strings_equal_with_ascii_case_insensitivity(
 							   argv[i], u8"-rgbtransfers"
 						   )) {
 					g_rgb_transfers = true;
-				}
-
-				else if (strings_equal_with_ascii_case_insensitivity(
-							 argv[i], u8"-bscale"
-						 )) {
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-bscale"
+						   )) {
 					Error("'-bscale' is obsolete.");
 					if (i + 1 < argc) {
 						g_transtotal_hack = (float) atof(argv[++i]);
 					} else {
 						Usage();
 					}
-				}
-
-				else if (strings_equal_with_ascii_case_insensitivity(
-							 argv[i], u8"-minlight"
-						 )) {
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-minlight"
+						   )) {
 					if (i + 1 < argc) {
-						int v = atoi(argv[++i]);
-						v = std::max(0, std::min(v, 255));
-						g_minlight = (unsigned char) v;
+						float_color_element v = atof(argv[++i]);
+						v = std::clamp(v, 0.0f, 1.0f);
+						g_minlight = v;
 					} else {
 						Usage();
 					}
@@ -4025,42 +3808,36 @@ int main(int const argc, char** argv) {
 						Usage();
 					}
 				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-pre25"
-						   )) // Pre25 should be after everything else to
-							  // override
-				{
-					g_pre25update = true;
-					g_limitthreshold = 188.0;
-				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-aodepth"
-						   )) {
-					if (i + 1 < argc) {
-						Ao::SetDepth(atof(argv[++i]));
-					} else {
-						Usage();
-					}
-				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-aoscale"
-						   )) {
-					if (i + 1 < argc) {
-						Ao::SetScale(atof(argv[++i]));
-					} else {
-						Usage();
-					}
-				} else if (strings_equal_with_ascii_case_insensitivity(
-							   argv[i], u8"-aogamma"
-						   )) {
-					if (i + 1 < argc) {
-						Ao::SetGamma(atof(argv[++i]));
-					} else {
-						Usage();
-					}
-				} else if (strings_equal_with_ascii_case_insensitivity(
-					argv[i], u8"-aoonly"
+					argv[i], u8"-aodepth"
 				)) {
-					g_ao_only_mode = true;
-					g_numbounce = 0;
-				} else if (argv[i][0] == '-') {
+		 if (i + 1 < argc) {
+			 Ao::SetDepth(atof(argv[++i]));
+		 } else {
+			 Usage();
+		 }
+	 } else if (strings_equal_with_ascii_case_insensitivity(
+					argv[i], u8"-aoscale"
+				)) {
+		 if (i + 1 < argc) {
+			 Ao::SetScale(atof(argv[++i]));
+		 } else {
+			 Usage();
+		 }
+	 } else if (strings_equal_with_ascii_case_insensitivity(
+					argv[i], u8"-aogamma"
+				)) {
+		 if (i + 1 < argc) {
+			 Ao::SetGamma(atof(argv[++i]));
+		 } else {
+			 Usage();
+		 }
+	 } else if (strings_equal_with_ascii_case_insensitivity(
+		 argv[i], u8"-aoonly"
+	 )) {
+		 g_ao_only_mode = true;
+		 g_numbounce = 0;
+	 }
+	 else if (argv[i][0] == '-') {
 					Log("Unknown option \"%s\"\n", argv[i]);
 					Usage();
 				} else if (!mapname_from_arg) {
@@ -4132,20 +3909,52 @@ int main(int const argc, char** argv) {
 				g_corings[0] = 0;
 				std::fill(&g_corings[1], &g_corings[ALLSTYLES], g_coring);
 			}
-			if (g_direct_scale != 1.0) {
-				Warning(
-					"dscale value should be 1.0 for final compile.\nIf you need to adjust the bounced light, use the '-texreflectscale' and '-texreflectgamma' options instead."
-				);
-			}
-			if (g_colour_lightscale[0] != 2.0
-				|| g_colour_lightscale[1] != 2.0
-				|| g_colour_lightscale[2] != 2.0) {
+			if (g_lighting_scale != 2.0f) {
+				//// TOOD: WHAT?!??!?!
+				//// TOOD: WHAT?!??!?!
+				//// TOOD: WHAT?!??!?!
+				//// TOOD: WHAT?!??!?!
+
+				/// SEE
+				/// https://github.com/ValveSoftware/halflife/blob/b1b5cf5892918535619b2937bb927e46cb097ba1/dlls/lights.cpp#L166
+				/// PERHAPS I CAN ALTER THE light_environment VALUES IN THE
+				/// OUTPUT?
+
+				/*
+					When game DLLs spawn light_environment, it makes the
+				   following adjustments
+
+					int r, g, b, brightness;
+					r = r * (brightness / 255.0);
+					g = g * (brightness / 255.0);
+					b = b * (brightness / 255.0);
+					sv_skycolor_r = pow( r / 114.0, 0.6 ) * 264;
+					sv_skycolor_g = pow( g / 114.0, 0.6 ) * 264;
+					sv_skycolor_b = pow( b / 114.0, 0.6 ) * 264;
+
+					Because of this, we need to output a light_environment
+					with values that will give us the correct sv_skycolor_X
+					values.
+
+					build_light_environment_rgbv_values(uint8_t r, uint8_t
+				   g, uint8_t b) {
+					uint8_t const outR = std::round(std::pow(r/264, 1/0.6) *
+				   114);
+				   uint8_t const outG = std::round(std::pow(r/264,
+				   1/0.6)
+				   * 114);
+				   uint8_t const outB = std::round(std::pow(r/264,
+				   1/0.6) * 114);
+				   constexpr uint8_t outV = 1;
+				   return {outR,
+				   outG, outB, outV};
+					}
+
+				*/
+
 				Warning(
 					"light scale value should be 2.0 for final compile.\nValues other than 2.0 will result in incorrect interpretation of light_environment's brightness when the engine loads the map."
 				);
-			}
-			if (g_drawlerp) {
-				g_direct_scale = 0.0;
 			}
 
 			if (!g_visdatasize) {

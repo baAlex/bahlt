@@ -3,6 +3,7 @@
 #include "hlassert.h"
 #include "log.h"
 #include "mathlib.h"
+#include "mathtypes.h"
 
 #include <algorithm>
 #include <span>
@@ -182,8 +183,12 @@ bool winding_base<VecElement>::empty() const {
 }
 
 template <std::floating_point VecElement>
-void winding_base<VecElement>::clear(bool shrinkToFit) {
+void winding_base<VecElement>::clear() {
 	m_Points.clear();
+}
+
+template <std::floating_point VecElement>
+void winding_base<VecElement>::shrink_to_fit() {
 	m_Points.shrink_to_fit();
 }
 
@@ -350,26 +355,14 @@ void winding_base<VecElement>::RemoveColinearPoints(vec_element epsilon) {
 
 template <std::floating_point VecElement>
 void winding_base<VecElement>::Clip(
-	dplane_t const & plane,
-	winding_base& front,
-	winding_base& back,
-	vec_element epsilon
-) const {
-	Clip(
-		to_vec3<vec_element>(plane.normal), plane.dist, front, back, epsilon
-	);
-}
-
-template <std::floating_point VecElement>
-void winding_base<VecElement>::Clip(
 	vec3 const & normal,
 	vec_element planeDist,
 	winding_base& front,
 	winding_base& back,
 	vec_element epsilon
 ) const {
-	usually_inplace_vector<vec_element, 32> dists;
-	usually_inplace_vector<face_side, 32> sides;
+	usually_inplace_vector<vec_element, 64> dists;
+	usually_inplace_vector<face_side, 64> sides;
 	dists.reserve(size() + 1);
 	sides.reserve(size() + 1);
 
@@ -510,15 +503,14 @@ bool winding_base<VecElement>::mutating_clip(
 	bool keepon,
 	vec_element epsilon
 ) {
-	usually_inplace_vector<vec_element, 32> dists;
-	usually_inplace_vector<face_side, 32> sides;
+	usually_inplace_vector<vec_element, 64> dists;
+	usually_inplace_vector<face_side, 64> sides;
 	dists.reserve(size() + 1);
 	sides.reserve(size() + 1);
 
 	std::array<std::size_t, 3> counts{};
 
 	// determine sides for each point
-	// do this exactly, with no epsilon so tiny portals still work
 	for (std::size_t i = 0; i < size(); ++i) {
 		vec_element const dot = dot_product(m_Points[i], planeNormal)
 			- planeDist;
@@ -530,22 +522,25 @@ bool winding_base<VecElement>::mutating_clip(
 		}
 		dists.emplace_back(dot);
 		sides.emplace_back(side);
-		++counts[(std::size_t) side];
+		++counts[std::to_underlying(side)];
 	}
 	dists.push_back(dists.front());
 	sides.push_back(sides.front());
 
-	if (keepon && !counts[0] && !counts[1]) {
+	// Hmm? This version of the clip function does not have the `dotSum >
+	// NORMAL_EPSILON` check... should it?
+
+	if (keepon && !counts[std::to_underlying(face_side::front)]
+		&& !counts[std::to_underlying(face_side::back)]) {
 		return true;
 	}
 
-	if (!counts[0]) {
-		m_Points.clear();
-		m_Points.shrink_to_fit();
+	if (!counts[std::to_underlying(face_side::front)]) {
+		clear();
 		return false;
 	}
 
-	if (!counts[1]) {
+	if (!counts[std::to_underlying(face_side::back)]) {
 		return true;
 	}
 
@@ -572,7 +567,7 @@ bool winding_base<VecElement>::mutating_clip(
 		if (tmp >= size()) {
 			tmp = 0;
 		}
-		vec3 const & p2 = m_Points[tmp];
+		vec3 const & p2 = point(tmp);
 		vec_element const dot = dists[i] / (dists[i] - dists[i + 1]);
 		for (std::size_t j = 0; j < 3;
 			 ++j) { // avoid round off error when possible
@@ -587,37 +582,32 @@ bool winding_base<VecElement>::mutating_clip(
 		newPoints.emplace_back(mid);
 	}
 
-	using std::swap;
-	swap(m_Points, newPoints);
-
+	m_Points = std::move(newPoints);
 	RemoveColinearPoints(epsilon);
 
-	if (m_Points.empty()) {
-		m_Points.shrink_to_fit();
-		return false;
-	}
-
-	return true;
+	return !empty();
 }
 
 /*
- * ==================
- * Divide
  * Divides a winding by a plane, producing one or two windings.  The
  * original winding is not damaged or freed.  If only on one side, the
  * returned winding will be the input winding.  If on both sides, two
  * new windings will be created.
- * ==================
  */
 template <std::floating_point VecElement>
-winding_base<VecElement>::division_result winding_base<VecElement>::Divide(
-	mapplane_t const & split,
-	std::optional<VecElement> distOverrideForFuncDetail,
+void winding_base<VecElement>::clip(
+	vec3 const & dividingPlaneNormal,
+	vec_element dividingPlaneDist,
+	winding_base& back,
+	winding_base& front,
+	std::optional<vec_element> distOverrideForFuncDetail,
 	vec_element epsilon
-
 ) const {
-	usually_inplace_vector<vec_element, 32> dists;
-	usually_inplace_vector<face_side, 32> sides;
+	back.clear();
+	front.clear();
+
+	usually_inplace_vector<vec_element, 64> dists;
+	usually_inplace_vector<face_side, 64> sides;
 	dists.reserve(size() + 1);
 	sides.reserve(size() + 1);
 
@@ -627,8 +617,8 @@ winding_base<VecElement>::division_result winding_base<VecElement>::Divide(
 
 	// determine sides for each point
 	for (std::size_t i = 0; i < size(); i++) {
-		vec_element const dot = dot_product(m_Points[i], split.normal)
-			- split.dist;
+		vec_element const dot = dot_product(point(i), dividingPlaneNormal)
+			- dividingPlaneDist;
 		dotSum += dot;
 
 		face_side side{ face_side::on };
@@ -646,26 +636,29 @@ winding_base<VecElement>::division_result winding_base<VecElement>::Divide(
 
 	if (!counts[std::to_underlying(face_side::back)]) {
 		if (counts[std::to_underlying(face_side::front)]) {
-			return one_sided_division_result::all_in_the_front;
+			front = *this;
+			return;
 		}
+
 		if (distOverrideForFuncDetail.value_or(dotSum) > NORMAL_EPSILON) {
-			return one_sided_division_result::all_in_the_front;
+			front = *this;
+			return;
 		}
-		return one_sided_division_result::all_in_the_back;
+		back = *this;
+		return;
 	}
 	if (!counts[std::to_underlying(face_side::front)]) {
-		return one_sided_division_result::all_in_the_back;
+		back = *this;
+		return;
 	}
 
 	// Distribute the points and generate splits
 
-	winding_base back;
-	winding_base front;
 	back.m_Points.reserve(size() + 4);
 	front.m_Points.reserve(size() + 4);
 
 	for (std::size_t i = 0; i < size(); i++) {
-		vec3 const & p1 = m_Points[i];
+		vec3 const & p1 = point(i);
 
 		if (sides[i] == face_side::on) {
 			front.m_Points.emplace_back(p1);
@@ -689,34 +682,44 @@ winding_base<VecElement>::division_result winding_base<VecElement>::Divide(
 		if (tmp >= size()) {
 			tmp = 0;
 		}
-		vec3 const & p2 = m_Points[tmp];
+		vec3 const & p2 = point(tmp);
 		vec_element dot = dists[i] / (dists[i] - dists[i + 1]);
 		for (std::size_t j = 0; j < 3;
 			 j++) { // avoid round off error when possible
-			if (split.normal[j] == 1) {
-				mid[j] = split.dist;
-			} else if (split.normal[j] == -1) {
-				mid[j] = -split.dist;
+			if (dividingPlaneNormal[j] == 1) {
+				mid[j] = dividingPlaneDist;
+			} else if (dividingPlaneNormal[j] == -1) {
+				mid[j] = -dividingPlaneDist;
 			} else {
 				mid[j] = p1[j] + dot * (p2[j] - p1[j]);
 			}
 		}
 
-		front.m_Points.emplace_back(mid);
 		back.m_Points.emplace_back(mid);
+		front.m_Points.emplace_back(mid);
 	}
 
-	front.RemoveColinearPoints(epsilon);
 	back.RemoveColinearPoints(epsilon);
+	front.RemoveColinearPoints(epsilon);
+}
 
-	if (!front) {
-		return one_sided_division_result::all_in_the_back;
-	}
-	if (!back) {
-		return one_sided_division_result::all_in_the_front;
-	}
-	return split_division_result{ .back = std::move(back),
-								  .front = std::move(front) };
+template <std::floating_point VecElement>
+void winding_base<VecElement>::clip(
+	mapplane_t const & dividingPlane,
+	winding_base& back,
+	winding_base& front,
+	std::optional<vec_element> distOverrideForFuncDetail,
+	vec_element epsilon
+
+) const {
+	clip(
+		to_vec3<vec_element>(dividingPlane.normal),
+		vec_element(dividingPlane.dist),
+		back,
+		front,
+		distOverrideForFuncDetail,
+		epsilon
+	);
 }
 
 // Unused??
