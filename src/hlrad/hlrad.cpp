@@ -59,7 +59,8 @@ static bool g_dumppatches = DEFAULT_DUMPPATCHES;
 float3_array g_ambient{ DEFAULT_AMBIENT_RED,
 						DEFAULT_AMBIENT_GREEN,
 						DEFAULT_AMBIENT_BLUE };
-int8_color_element g_limitthreshold = DEFAULT_LIMITTHRESHOLD;
+int8_color_element g_limiter_threshold = DEFAULT_LIMITER_THRESHOLD;
+bool g_clamp_limiter = false;
 bool g_drawoverload = false;
 
 float g_dlight_threshold
@@ -2941,8 +2942,8 @@ static void Settings() {
 		DEFAULT_AMBIENT_BLUE
 	);
 	Log("ambient light        [ %17s ] [ %17s ]\n", buf1, buf2);
-	safe_snprintf(buf1, sizeof(buf1), "%uf", g_limitthreshold);
-	safe_snprintf(buf2, sizeof(buf2), "%u", DEFAULT_LIMITTHRESHOLD);
+	safe_snprintf(buf1, sizeof(buf1), "%uf", g_limiter_threshold);
+	safe_snprintf(buf2, sizeof(buf2), "%u", DEFAULT_LIMITER_THRESHOLD);
 	Log("light limit threshold[ %17s ] [ %17s ]\n", buf1, buf2);
 	Log("circus mode          [ %17s ] [ %17s ]\n",
 		g_circus ? "on" : "off",
@@ -3503,12 +3504,16 @@ int main(int const argc, char** argv) {
 									  // another argument afterwards
 									  //(expected value)
 					{
-						g_limitthreshold = std::clamp(
+						g_limiter_threshold = std::clamp(
 							atoi(argv[++i]), 0, 255
 						);
 					} else {
 						Usage();
 					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-clamp"
+						   )) {
+					g_clamp_limiter = true;
 				} else if (strings_equal_with_ascii_case_insensitivity(
 							   argv[i], u8"-drawoverload"
 						   )) {

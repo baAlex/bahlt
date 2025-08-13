@@ -19,9 +19,7 @@
 #define DEFAULT_AMBIENT_GREEN 0.0
 #define DEFAULT_AMBIENT_BLUE  0.0
 
-// Lightmap pixels with a component value above 188 is clamped down.
-// Hopefully one day Valve will fix gl_overbright and we can use up to 255.
-constexpr int8_color_element DEFAULT_LIMITTHRESHOLD = 188;
+constexpr int8_color_element DEFAULT_LIMITER_THRESHOLD = 255;
 
 #define DEFAULT_TEXSCALE		 true
 #define DEFAULT_CHOP			 64.0
@@ -341,7 +339,8 @@ extern bool g_fastmode;
 extern bool g_ao_only_mode;
 extern bool g_extra;
 extern float3_array g_ambient;
-extern int8_color_element g_limitthreshold;
+extern int8_color_element g_limiter_threshold;
+extern bool g_clamp_limiter;
 extern bool g_drawoverload;
 extern unsigned g_numbounce;
 extern float g_qgamma;

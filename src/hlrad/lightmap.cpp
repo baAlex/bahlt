@@ -5236,23 +5236,22 @@ void FinalLightFace(int const facenum) {
 				lb[1] = Ao::Blend(samp->occlusion, lb[1]);
 				lb[2] = Ao::Blend(samp->occlusion, lb[2]);
 			} else {
-				lb[0] = samp->occlusion * 256.0f;
-				lb[1] = samp->occlusion * 256.0f;
-				lb[2] = samp->occlusion * 256.0f;
+				lb[0] = samp->occlusion * 255.0f;
+				lb[1] = samp->occlusion * 255.0f;
+				lb[2] = samp->occlusion * 255.0f;
 			}
 
 			lb[0] = std::pow(lb[0] / 255.0f, g_lighting_gamma);
 			lb[1] = std::pow(lb[1] / 255.0f, g_lighting_gamma);
 			lb[2] = std::pow(lb[2] / 255.0f, g_lighting_gamma);
 
-			// Clamp values
+			// Scale down values
+			float const maxLight = g_limiter_threshold / 255.0f;
+
 			{
 				float max = vector_max_element(lb);
-				float const maxLight = g_limitthreshold / 255.0f;
 				bool const isOverbright = max > maxLight;
-				if (isOverbright) {
-					// Make it just fullbright - since HL no longer supports
-					// overbright lighting (gl_overbright)
+				if (isOverbright && g_clamp_limiter == false) {
 					lb = vector_scale(lb, maxLight / max);
 				} else if (g_drawoverload) {
 					// Darken points that are not fullbright
@@ -5266,15 +5265,28 @@ void FinalLightFace(int const facenum) {
 				}
 			}
 
+			// Clamp values
+			int8_rgb lbi;
+
+			if (g_clamp_limiter == true)
+			{
+				for (int i = 0; i < 3; ++i) {
+					lbi[i] = (std::uint8_t
+					) std::lround(std::clamp(lb[i], 0.0f, maxLight) * 255);
+				}
+			}
+			else
+			{
+				for (int i = 0; i < 3; ++i) {
+					lbi[i] = (std::uint8_t
+					) std::lround(std::clamp(lb[i], 0.0f, 1.0f) * 255);
+				}
+			}
+
 			std::byte* colors
 				= &g_dlightdata
 					  [f->lightofs + k * fl->numsamples * 3 + j * 3];
 
-			int8_rgb lbi;
-			for (int i = 0; i < 3; ++i) {
-				lbi[i] = (std::uint8_t
-				) std::lround(std::clamp(lb[i], 0.0f, 1.0f) * 255);
-			}
 			colors[0] = (std::byte) lbi[0];
 			colors[1] = (std::byte) lbi[1];
 			colors[2] = (std::byte) lbi[2];
