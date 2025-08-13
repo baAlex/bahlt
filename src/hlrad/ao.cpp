@@ -35,15 +35,15 @@ to share it properly. Put my name somewhere, if you want.
 #include <cmath>
 
 static float s_ao_depth = Ao::DEFAULT_DEPTH;
-static float s_ao_scale = Ao::DEFAULT_SCALE;
+static float s_ao_intensity = Ao::DEFAULT_INTENSITY;
 static float s_ao_gamma = Ao::DEFAULT_GAMMA;
 
 void Ao::SetDepth(float depth) {
 	s_ao_depth = std::max(depth, 0.0f);
 }
 
-void Ao::SetScale(float scale) {
-	s_ao_scale = std::max(scale, 0.0f);
+void Ao::SetIntensity(float scale) {
+	s_ao_intensity = std::max(scale, 0.0f);
 }
 
 void Ao::SetGamma(float gamma) {
@@ -206,7 +206,7 @@ float Ao::Sample(float3_array pos, float3_array normal) {
 	}
 
 	acc /= static_cast<float>(KERNEL_SAMPLES);
-	acc = std::pow(acc, s_ao_gamma) * s_ao_scale;
+	acc = std::pow(acc, s_ao_gamma) * s_ao_intensity;
 
 	return 1.0f - std::clamp(acc, 0.0f, 1.0f);
 }

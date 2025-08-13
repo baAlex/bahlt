@@ -3808,36 +3808,35 @@ int main(int const argc, char** argv) {
 						Usage();
 					}
 				} else if (strings_equal_with_ascii_case_insensitivity(
-					argv[i], u8"-aodepth"
-				)) {
-		 if (i + 1 < argc) {
-			 Ao::SetDepth(atof(argv[++i]));
-		 } else {
-			 Usage();
-		 }
-	 } else if (strings_equal_with_ascii_case_insensitivity(
-					argv[i], u8"-aoscale"
-				)) {
-		 if (i + 1 < argc) {
-			 Ao::SetScale(atof(argv[++i]));
-		 } else {
-			 Usage();
-		 }
-	 } else if (strings_equal_with_ascii_case_insensitivity(
-					argv[i], u8"-aogamma"
-				)) {
-		 if (i + 1 < argc) {
-			 Ao::SetGamma(atof(argv[++i]));
-		 } else {
-			 Usage();
-		 }
-	 } else if (strings_equal_with_ascii_case_insensitivity(
-		 argv[i], u8"-aoonly"
-	 )) {
-		 g_ao_only_mode = true;
-		 g_numbounce = 0;
-	 }
-	 else if (argv[i][0] == '-') {
+							   argv[i], u8"-ao-depth"
+						   )) {
+					if (i + 1 < argc) {
+						Ao::SetDepth(atof(argv[++i]));
+					} else {
+						Usage();
+					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-ao-intensity"
+						   )) {
+					if (i + 1 < argc) {
+						Ao::SetIntensity(atof(argv[++i]));
+					} else {
+						Usage();
+					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-ao-gamma"
+						   )) {
+					if (i + 1 < argc) {
+						Ao::SetGamma(atof(argv[++i]));
+					} else {
+						Usage();
+					}
+				} else if (strings_equal_with_ascii_case_insensitivity(
+							   argv[i], u8"-ao-only"
+						   )) {
+					g_ao_only_mode = true;
+					g_numbounce = 0;
+				} else if (argv[i][0] == '-') {
 					Log("Unknown option \"%s\"\n", argv[i]);
 					Usage();
 				} else if (!mapname_from_arg) {
